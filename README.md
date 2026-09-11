@@ -54,7 +54,7 @@ Everything runs client-side. `index.html` pulls in two external libraries at run
 
 ## Data storage & privacy
 
-- All data (saved logs and the signature) is stored **locally in the browser**, using IndexedDB (or Claude's built-in storage, when running inside a Claude.ai artifact).
+- All data (saved logs and the signature) is stored **locally in the browser**, using IndexedDB.
 - Nothing is sent to a server. There is no backend, no database, and no account system.
 - Because storage is per-browser and per-device, data does **not** sync automatically between devices or between different people opening the same link — each visitor gets their own private local copy.
 - Use **Export All Data** / **Import Data** (in the app) to manually move data between devices or keep a backup.
