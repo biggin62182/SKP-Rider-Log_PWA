@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rider Log — Transportation Manifest</title>
+
+<!-- PWA -->
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#1B2A41">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rider Log">
+<meta name="mobile-web-app-capable" content="yes">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root{
+    --ink:#1B2A41;
+    --slate:#2E4057;
+    --slate-soft:#4d5f7a;
+    --amber:#E8A33D;
+    --amber-deep:#C97F17;
+    --paper:#F2EFE9;
+    --paper-line:#d9d3c5;
+    --card:#ffffff;
+    --danger:#B3452D;
+    --ok:#3f7a53;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    background-image:
+      linear-gradient(160deg, #1B2A41 0%, #223451 45%, #1B2A41 100%);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    min-height:100vh;
+    padding:28px 18px 60px;
+  }
+  .wrap{max-width:1180px;margin:0 auto;}
+
+  header.top{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:16px;
+    color:#fff;
+    padding:6px 6px 22px;
+    border-bottom:1px solid rgba(255,255,255,0.14);
+    margin-bottom:24px;
+    flex-wrap:wrap;
+  }
+  header.top .brand-eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--amber);
+    margin-bottom:6px;
+  }
+  header.top h1{
+    margin:0;
+    font-size:32px;
+    font-weight:800;
+    letter-spacing:-0.01em;
+  }
+  header.top p{
+    margin:6px 0 0;
+    color:#c7d0dd;
+    font-size:14px;
+    max-width:520px;
+  }
+  .route-line{
+    display:flex;align-items:center;gap:8px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;color:#c7d0dd;
+  }
+  .route-line .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);}
+  .route-line .dash{width:34px;height:1px;background:repeating-linear-gradient(90deg,#c7d0dd 0 4px,transparent 4px 8px);}
+
+  .grid-layout{
+    display:grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap:20px;
+  }
+  @media (max-width: 920px){ .grid-layout{grid-template-columns:1fr;} }
+
+  .panel{
+    background:var(--card);
+    border-radius:var(--radius);
+    box-shadow:0 12px 30px rgba(0,0,0,0.25);
+    overflow:hidden;
+  }
+  .panel-head{
+    background:var(--slate);
+    color:#fff;
+    padding:14px 20px;
+    display:flex;align-items:center;justify-content:space-between;
+    gap:10px;
+  }
+  .panel-head h2{margin:0;font-size:15px;font-weight:700;letter-spacing:.02em;}
+  .panel-body{padding:20px;}
+  .panel-body.paper{background:var(--paper);}
+
+  label{
+    display:block;
+    font-size:11px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--slate-soft);
+    margin-bottom:4px;
+  }
+  .field{margin-bottom:14px;}
+  input[type=text], input[type=number], input[type=month]{
+    width:100%;
+    padding:9px 10px;
+    border:1px solid var(--paper-line);
+    border-radius:6px;
+    background:#fff;
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    color:var(--ink);
+  }
+  input:focus{outline:2px solid var(--amber);outline-offset:1px;}
+
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field-row4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  @media (max-width:600px){ .field-row4{grid-template-columns:repeat(2,1fr);} }
+
+  .section-title{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:.1em;
+    color:var(--slate);
+    margin:22px 0 10px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .section-title::after{content:"";flex:1;height:1px;background:var(--paper-line);}
+
+  table.daylog{
+    width:100%;
+    border-collapse:collapse;
+    background:#fff;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+  }
+  table.daylog th{
+    background:var(--ink);
+    color:#fff;
+    padding:6px 4px;
+    font-weight:600;
+    letter-spacing:.04em;
+  }
+  table.daylog td{
+    border:1px solid var(--paper-line);
+    padding:0;
+  }
+  table.daylog td.daynum{
+    background:#f8f6f2;
+    text-align:center;
+    font-weight:600;
+    color:var(--slate);
+    width:34px;
+  }
+  table.daylog input{
+    width:100%;
+    border:none;
+    padding:5px 4px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    text-align:center;
+    background:transparent;
+  }
+  table.daylog input:focus{outline:2px solid var(--amber);outline-offset:-2px;}
+  .daylog-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media (max-width:640px){ .daylog-cols{grid-template-columns:1fr;} }
+
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:10px 16px;
+    border-radius:7px;
+    border:none;
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:.02em;
+    cursor:pointer;
+    font-family:'Inter',sans-serif;
+    transition:transform .08s ease, box-shadow .08s ease;
+  }
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--amber);color:#241503;}
+  .btn-primary:hover{background:var(--amber-deep);}
+  .btn-outline{background:transparent;color:var(--slate);border:1.5px solid var(--paper-line);}
+  .btn-outline:hover{border-color:var(--slate);}
+  .btn-ghost{background:transparent;color:var(--danger);border:1.5px solid transparent;padding:6px 10px;font-size:12px;}
+  .btn-ghost:hover{background:rgba(179,69,45,0.08);}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+
+  .actions-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;}
+
+  .entry{
+    display:flex;align-items:flex-start;gap:10px;
+    padding:12px 14px;
+    border:1px solid var(--paper-line);
+    border-radius:8px;
+    margin-bottom:10px;
+    background:#fdfcfa;
+  }
+  .entry input[type=checkbox]{margin-top:3px;width:16px;height:16px;accent-color:var(--amber-deep);}
+  .entry .meta{flex:1;min-width:0;}
+  .entry .meta .name{font-weight:700;font-size:14px;color:var(--ink);}
+  .entry .meta .sub{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--slate-soft);margin-top:2px;}
+  .entry .row-btns{display:flex;gap:4px;flex-shrink:0;}
+
+  .empty-state{
+    text-align:center;
+    padding:30px 14px;
+    color:var(--slate-soft);
+    font-size:13px;
+    font-family:'IBM Plex Mono',monospace;
+  }
+
+  .status-msg{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12.5px;
+    padding:10px 12px;
+    border-radius:6px;
+    margin-top:14px;
+    display:none;
+  }
+  .status-msg.show{display:block;}
+  .status-msg.ok{background:rgba(63,122,83,0.1);color:var(--ok);border:1px solid rgba(63,122,83,0.3);}
+  .status-msg.err{background:rgba(179,69,45,0.1);color:var(--danger);border:1px solid rgba(179,69,45,0.3);}
+  .status-msg.info{background:rgba(46,64,87,0.08);color:var(--slate);border:1px solid rgba(46,64,87,0.2);}
+
+  .note{
+    font-size:12px;
+    color:var(--slate-soft);
+    line-height:1.5;
+    margin-top:8px;
+  }
+  .sig-pad-wrap{
+    border:1.5px dashed var(--paper-line);
+    border-radius:8px;
+    background:#fff;
+    padding:0;
+    overflow:hidden;
+  }
+  #sigPad{
+    width:100%;
+    height:150px;
+    display:block;
+    touch-action:none;
+    cursor:crosshair;
+  }
+  .badge{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px;
+    background:rgba(232,163,61,0.18);
+    color:var(--amber-deep);
+    padding:2px 7px;
+    border-radius:20px;
+    font-weight:700;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div>
+      <div class="brand-eyebrow">Transportation Dept · Manifest Tool</div>
+      <h1>Rider Log</h1>
+      <p>Fill out a monthly rider log, save it, then compile any set of saved logs into one PDF ready to download or send.</p>
+    </div>
+    <div class="route-line">
+      <span class="dot"></span><span class="dash"></span>
+      <span id="entryCount">0 saved logs</span>
+      <span class="dash"></span><span class="dot"></span>
+    </div>
+    <div class="route-line" id="storageModeLine" style="width:100%;justify-content:flex-end;"></div>
+  </header>
+
+  <div class="grid-layout">
+
+    <!-- FORM PANEL -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2 id="formHeading">New Rider Log</h2>
+        <span class="badge" id="editingBadge" style="display:none;">EDITING</span>
+      </div>
+      <div class="panel-body paper">
+
+        <div class="field">
+          <label for="f-student">Student</label>
+          <input type="text" id="f-student" placeholder="Full name">
+        </div>
+        <div class="field">
+          <label for="f-pickup">Address of Pickup</label>
+          <input type="text" id="f-pickup" placeholder="Street address">
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="f-residence">District of Residence</label>
+            <input type="text" id="f-residence">
+          </div>
+          <div class="field">
+            <label for="f-home">Attending / Home District</label>
+            <input type="text" id="f-home">
+          </div>
+        </div>
+
+        <div class="field-row4">
+          <div class="field">
+            <label for="f-total">Total Daily Miles</label>
+            <input type="number" step="0.1" id="f-total">
+          </div>
+          <div class="field">
+            <label for="f-am">AM Miles</label>
+            <input type="number" step="0.1" id="f-am">
+          </div>
+          <div class="field">
+            <label for="f-pm">PM Miles</label>
+            <input type="number" step="0.1" id="f-pm">
+          </div>
+          <div class="field">
+            <label for="f-split">Split Miles</label>
+            <input type="number" step="0.1" id="f-split">
+          </div>
+        </div>
+
+        <div class="field" style="max-width:220px;">
+          <label for="f-monthyear">Month / Year</label>
+          <input type="month" id="f-monthyear">
+        </div>
+
+        <div class="section-title">Daily Log</div>
+        <div class="daylog-cols">
+          <table class="daylog"><thead><tr><th></th><th>AM</th><th>PM</th></tr></thead>
+            <tbody id="daysCol1"></tbody>
+          </table>
+          <table class="daylog"><thead><tr><th></th><th>AM</th><th>PM</th></tr></thead>
+            <tbody id="daysCol2"></tbody>
+          </table>
+        </div>
+
+        <div class="section-title">Sign Off</div>
+
+        <div class="field">
+          <label>Driver's Signature <span style="text-transform:none;font-weight:400;">— saved once, applied to every compiled PDF</span></label>
+          <div class="sig-pad-wrap">
+            <canvas id="sigPad" width="500" height="150"></canvas>
+          </div>
+          <div class="actions-row" style="margin-top:8px;">
+            <button class="btn btn-outline" id="sigClearBtn" type="button">Clear</button>
+            <button class="btn btn-primary" id="sigSaveBtn" type="button">Save Signature</button>
+          </div>
+          <div class="status-msg" id="sigStatus"></div>
+          <p class="note" id="sigSavedNote" style="display:none;">✓ Signature on file — it'll be stamped onto every form when you compile a PDF.</p>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="f-driver">Driver's Print Name</label>
+            <input type="text" id="f-driver">
+          </div>
+          <div class="field">
+            <label for="f-date">Date</label>
+            <input type="text" id="f-date" placeholder="MM/DD/YYYY">
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-primary" id="saveBtn">Save Entry</button>
+          <button class="btn btn-outline" id="clearBtn">Clear Form / New Entry</button>
+        </div>
+        <div class="status-msg" id="formStatus"></div>
+      </div>
+    </div>
+
+    <!-- SAVED ENTRIES PANEL -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Saved Logs</h2>
+      </div>
+      <div class="panel-body">
+        <div id="entriesList"></div>
+
+        <div class="section-title">Backup &amp; Transfer</div>
+        <p class="note">Your data lives only in this browser/device. Export it to move your logs and signature to another device, or to keep a backup.</p>
+        <div class="actions-row">
+          <button class="btn btn-outline" id="exportBtn">Export All Data</button>
+          <button class="btn btn-outline" id="importBtn">Import Data</button>
+          <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+        </div>
+        <div class="status-msg" id="backupStatus"></div>
+
+        <div class="section-title">Compile &amp; Send</div>
+        <div class="actions-row">
+          <button class="btn btn-outline" id="selectAllBtn">Select All</button>
+          <button class="btn btn-primary" id="compileBtn" disabled>Compile Selected → PDF</button>
+        </div>
+        <div class="actions-row" id="postCompileRow" style="display:none;">
+          <button class="btn btn-outline" id="shareBtn">Share / Email PDF</button>
+        </div>
+        <p class="note" id="emailNote" style="display:none;">
+          On a phone, "Share / Email PDF" opens your device share sheet — pick Mail or Gmail and the PDF attaches automatically.
+          On desktop, browsers can't attach files to an email for you, so it'll open a blank email draft in your mail app instead — just drag the PDF (already downloaded) into that draft.
+        </p>
+        <div class="status-msg" id="compileStatus"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ---------- constants ----------
+const STORAGE_PREFIX = 'riderlog:entries:';
+let currentEditId = null;
+let lastPdfBlob = null;
+let lastPdfName = null;
+
+// ---------- storage layer: use Claude's window.storage when available, ----------
+// ---------- otherwise fall back to this browser's IndexedDB ----------
+const IDB_NAME = 'riderlog_local_db';
+const IDB_STORE = 'kv';
+let _dbPromise = null;
+function openLocalDB(){
+  if(_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject)=>{
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE, {keyPath:'key'});
+    };
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = ()=> reject(req.error);
+  });
+  return _dbPromise;
+}
+async function idbSet(key, value){
+  const db = await openLocalDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({key, value});
+    tx.oncomplete = ()=> resolve({key, value});
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbGet(key){
+  const db = await openLocalDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = ()=> resolve(req.result ? {key, value: req.result.value} : null);
+    req.onerror = ()=> reject(req.error);
+  });
+}
+async function idbDelete(key){
+  const db = await openLocalDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = ()=> resolve({key, deleted:true});
+    tx.onerror = ()=> reject(tx.error);
+  });
+}
+async function idbListKeys(prefix){
+  const db = await openLocalDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).getAllKeys();
+    req.onsuccess = ()=> resolve((req.result||[]).filter(k=> !prefix || String(k).startsWith(prefix)));
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+const hasClaudeStorage = (typeof window.storage !== 'undefined') && window.storage && typeof window.storage.set === 'function';
+
+const storageAPI = hasClaudeStorage ? {
+  get: (key)=> window.storage.get(key, false),
+  set: (key, value)=> window.storage.set(key, value, false),
+  delete: (key)=> window.storage.delete(key, false),
+  list: (prefix)=> window.storage.list(prefix, false)
+} : {
+  get: (key)=> idbGet(key),
+  set: (key, value)=> idbSet(key, value),
+  delete: (key)=> idbDelete(key),
+  list: async (prefix)=> ({ keys: await idbListKeys(prefix) })
+};
+
+// ---------- build daily grid inputs ----------
+function buildDayRows(){
+  const col1 = document.getElementById('daysCol1');
+  const col2 = document.getElementById('daysCol2');
+  const ord = n => {
+    if(n===1||n===21||n===31) return n+'st';
+    if(n===2||n===22) return n+'nd';
+    if(n===3||n===23) return n+'rd';
+    return n+'th';
+  };
+  for(let d=1; d<=31; d++){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="daynum">${ord(d)}</td>
+      <td><input type="text" data-day="${d}" data-part="am"></td>
+      <td><input type="text" data-day="${d}" data-part="pm"></td>`;
+    (d<=16 ? col1 : col2).appendChild(tr);
+  }
+}
+buildDayRows();
+
+function collectDays(){
+  const days = {};
+  document.querySelectorAll('#daysCol1 input, #daysCol2 input').forEach(inp=>{
+    const day = inp.dataset.day, part = inp.dataset.part;
+    days[day] = days[day] || {am:'', pm:''};
+    days[day][part] = inp.value.trim();
+  });
+  return days;
+}
+function populateDays(days){
+  document.querySelectorAll('#daysCol1 input, #daysCol2 input').forEach(inp=>{
+    const day = inp.dataset.day, part = inp.dataset.part;
+    inp.value = (days && days[day] && days[day][part]) ? days[day][part] : '';
+  });
+}
+
+// ---------- signature pad ----------
+const SIG_KEY = 'riderlog:signature:main';
+let currentSignature = null;
+const sigCanvas = document.getElementById('sigPad');
+const sigCtx = sigCanvas.getContext('2d');
+function sigClearCanvas(){
+  sigCtx.fillStyle = '#ffffff';
+  sigCtx.fillRect(0,0,sigCanvas.width,sigCanvas.height);
+  sigCtx.strokeStyle = '#1B2A41';
+  sigCtx.lineWidth = 2.5;
+  sigCtx.lineCap = 'round';
+  sigCtx.lineJoin = 'round';
+}
+sigClearCanvas();
+
+let sigDrawing = false;
+function sigGetPos(evt){
+  const rect = sigCanvas.getBoundingClientRect();
+  const scaleX = sigCanvas.width / rect.width;
+  const scaleY = sigCanvas.height / rect.height;
+  const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+  const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+  return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+}
+function sigStart(e){ sigDrawing = true; const p = sigGetPos(e); sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y); e.preventDefault(); }
+function sigMove(e){ if(!sigDrawing) return; const p = sigGetPos(e); sigCtx.lineTo(p.x, p.y); sigCtx.stroke(); e.preventDefault(); }
+function sigEnd(){ sigDrawing = false; }
+sigCanvas.addEventListener('mousedown', sigStart);
+sigCanvas.addEventListener('mousemove', sigMove);
+window.addEventListener('mouseup', sigEnd);
+sigCanvas.addEventListener('touchstart', sigStart, {passive:false});
+sigCanvas.addEventListener('touchmove', sigMove, {passive:false});
+sigCanvas.addEventListener('touchend', sigEnd);
+
+document.getElementById('sigClearBtn').addEventListener('click', ()=>{
+  sigClearCanvas();
+});
+
+document.getElementById('sigSaveBtn').addEventListener('click', async ()=>{
+  const status = document.getElementById('sigStatus');
+  try{
+    const dataUrl = sigCanvas.toDataURL('image/png');
+    await storageAPI.set(SIG_KEY, dataUrl);
+    currentSignature = dataUrl;
+    showStatus(status, 'Signature saved.', 'ok');
+    document.getElementById('sigSavedNote').style.display = 'block';
+  }catch(err){
+    console.error(err);
+    showStatus(status, 'Could not save signature — try again.', 'err');
+  }
+});
+
+async function loadSignature(){
+  try{
+    const r = await storageAPI.get(SIG_KEY);
+    if(r && r.value){
+      currentSignature = r.value;
+      const img = new Image();
+      img.onload = ()=>{
+        sigCtx.fillStyle = '#ffffff';
+        sigCtx.fillRect(0,0,sigCanvas.width,sigCanvas.height);
+        sigCtx.drawImage(img, 0, 0, sigCanvas.width, sigCanvas.height);
+      };
+      img.src = r.value;
+      document.getElementById('sigSavedNote').style.display = 'block';
+    }
+  }catch(err){
+    // no signature saved yet — normal on first use
+  }
+}
+
+// ---------- status helpers ----------
+function showStatus(el, msg, type){
+  el.textContent = msg;
+  el.className = 'status-msg show ' + type;
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.classList.remove('show'); }, 5000);
+}
+
+// ---------- form <-> entry object ----------
+function readForm(){
+  return {
+    student: document.getElementById('f-student').value.trim(),
+    pickup: document.getElementById('f-pickup').value.trim(),
+    residence: document.getElementById('f-residence').value.trim(),
+    home: document.getElementById('f-home').value.trim(),
+    total: document.getElementById('f-total').value.trim(),
+    am: document.getElementById('f-am').value.trim(),
+    pm: document.getElementById('f-pm').value.trim(),
+    split: document.getElementById('f-split').value.trim(),
+    monthYear: document.getElementById('f-monthyear').value,
+    driver: document.getElementById('f-driver').value.trim(),
+    date: document.getElementById('f-date').value.trim(),
+    days: collectDays()
+  };
+}
+function fillForm(e){
+  document.getElementById('f-student').value = e.student || '';
+  document.getElementById('f-pickup').value = e.pickup || '';
+  document.getElementById('f-residence').value = e.residence || '';
+  document.getElementById('f-home').value = e.home || '';
+  document.getElementById('f-total').value = e.total || '';
+  document.getElementById('f-am').value = e.am || '';
+  document.getElementById('f-pm').value = e.pm || '';
+  document.getElementById('f-split').value = e.split || '';
+  document.getElementById('f-monthyear').value = e.monthYear || '';
+  document.getElementById('f-driver').value = e.driver || '';
+  document.getElementById('f-date').value = e.date || '';
+  populateDays(e.days || {});
+}
+function clearForm(){
+  currentEditId = null;
+  document.getElementById('editingBadge').style.display = 'none';
+  document.getElementById('formHeading').textContent = 'New Rider Log';
+  fillForm({});
+}
+
+// ---------- persistence ----------
+async function saveEntry(){
+  const data = readForm();
+  if(!data.student){
+    showStatus(document.getElementById('formStatus'), 'Add a student name before saving.', 'err');
+    return;
+  }
+  const id = currentEditId || ('e' + Date.now() + Math.random().toString(36).slice(2,7));
+  const record = { id, savedAt: new Date().toISOString(), ...data };
+  try{
+    const res = await storageAPI.set(STORAGE_PREFIX + id, JSON.stringify(record));
+    if(!res) throw new Error('no result');
+    showStatus(document.getElementById('formStatus'), currentEditId ? 'Entry updated.' : 'Entry saved.', 'ok');
+    currentEditId = id;
+    document.getElementById('editingBadge').style.display = 'inline-block';
+    document.getElementById('formHeading').textContent = 'Editing Rider Log';
+    await refreshEntriesList();
+  }catch(err){
+    console.error(err);
+    showStatus(document.getElementById('formStatus'), 'Could not save — storage error. Try again.', 'err');
+  }
+}
+
+async function loadAllEntries(){
+  try{
+    const listRes = await storageAPI.list(STORAGE_PREFIX);
+    const keys = (listRes && listRes.keys) ? listRes.keys : [];
+    const entries = [];
+    for(const k of keys){
+      try{
+        const r = await storageAPI.get(k);
+        if(r && r.value) entries.push(JSON.parse(r.value));
+      }catch(e){ /* skip unreadable key */ }
+    }
+    entries.sort((a,b)=> (b.savedAt||'').localeCompare(a.savedAt||''));
+    return entries;
+  }catch(err){
+    console.error(err);
+    return [];
+  }
+}
+
+async function deleteEntry(id){
+  try{
+    await storageAPI.delete(STORAGE_PREFIX + id);
+    if(currentEditId === id) clearForm();
+    await refreshEntriesList();
+  }catch(err){
+    console.error(err);
+  }
+}
+
+function fmtMonthYear(my){
+  if(!my) return 'No date set';
+  const [y,m] = my.split('-');
+  const names = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${names[parseInt(m,10)]} ${y}`;
+}
+
+async function refreshEntriesList(){
+  const entries = await loadAllEntries();
+  const list = document.getElementById('entriesList');
+  document.getElementById('entryCount').textContent = entries.length + (entries.length===1 ? ' saved log' : ' saved logs');
+
+  if(entries.length === 0){
+    list.innerHTML = '<div class="empty-state">No saved logs yet.<br>Fill out the form and click "Save Entry".</div>';
+    document.getElementById('compileBtn').disabled = true;
+    return;
+  }
+
+  list.innerHTML = '';
+  entries.forEach(e=>{
+    const row = document.createElement('div');
+    row.className = 'entry';
+    row.innerHTML = `
+      <input type="checkbox" class="entry-check" data-id="${e.id}">
+      <div class="meta">
+        <div class="name">${escapeHtml(e.student || 'Unnamed')}</div>
+        <div class="sub">${fmtMonthYear(e.monthYear)} · ${escapeHtml(e.home || 'no district')}</div>
+      </div>
+      <div class="row-btns">
+        <button class="btn btn-ghost" data-action="edit" data-id="${e.id}" style="color:var(--slate);">Edit</button>
+        <button class="btn btn-ghost" data-action="delete" data-id="${e.id}">Delete</button>
+      </div>`;
+    list.appendChild(row);
+  });
+
+  list.querySelectorAll('[data-action="edit"]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const entries2 = await loadAllEntries();
+      const found = entries2.find(x=>x.id===btn.dataset.id);
+      if(found){
+        currentEditId = found.id;
+        fillForm(found);
+        document.getElementById('editingBadge').style.display = 'inline-block';
+        document.getElementById('formHeading').textContent = 'Editing Rider Log';
+        window.scrollTo({top:0, behavior:'smooth'});
+      }
+    });
+  });
+  list.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(confirm('Delete this saved log? This cannot be undone.')) deleteEntry(btn.dataset.id);
+    });
+  });
+  list.querySelectorAll('.entry-check').forEach(cb=>{
+    cb.addEventListener('change', updateCompileButton);
+  });
+  updateCompileButton();
+}
+
+function updateCompileButton(){
+  const anyChecked = document.querySelectorAll('.entry-check:checked').length > 0;
+  document.getElementById('compileBtn').disabled = !anyChecked;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- PDF compilation ----------
+function buildPdfForEntries(entries, signatureDataUrl){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'pt', format:'letter'});
+
+  entries.forEach((e, idx) => {
+    if(idx > 0) doc.addPage();
+
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(18);
+    doc.setTextColor(27,42,65);
+    doc.text('RIDER LOG', 40, 46);
+
+    doc.setDrawColor(232,163,61);
+    doc.setLineWidth(2);
+    doc.line(40, 54, 572, 54);
+
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
+    doc.setTextColor(60,60,60);
+
+    const fieldLines = [
+      ['Student', e.student],
+      ['Address of Pickup', e.pickup],
+      ['District of Residence', e.residence],
+      ['Attending / Home District', e.home],
+      ['Month / Year', fmtMonthYear(e.monthYear)]
+    ];
+    let y = 74;
+    fieldLines.forEach(([label, val])=>{
+      doc.setFont('helvetica','bold');
+      doc.text(label + ':', 40, y);
+      doc.setFont('helvetica','normal');
+      doc.text(String(val || '—'), 190, y);
+      y += 16;
+    });
+
+    const mileLine = `Total Daily Miles: ${e.total||'—'}     AM Miles: ${e.am||'—'}     PM Miles: ${e.pm||'—'}     Split Miles: ${e.split||'—'}`;
+    doc.setFont('helvetica','bold');
+    doc.text(mileLine, 40, y+6);
+    y += 26;
+
+    // daily grid split into two 1-16 / 17-31 tables side by side
+    const rowsLeft = [];
+    const rowsRight = [];
+    for(let d=1; d<=31; d++){
+      const rec = (e.days && e.days[d]) || {am:'',pm:''};
+      const row = [String(d), rec.am||'', rec.pm||''];
+      if(d<=16) rowsLeft.push(row); else rowsRight.push(row);
+    }
+
+    doc.autoTable({
+      startY: y,
+      margin:{left:40},
+      tableWidth: 250,
+      head:[['Day','AM','PM']],
+      body: rowsLeft,
+      styles:{fontSize:8, cellPadding:3, halign:'center'},
+      headStyles:{fillColor:[27,42,65], textColor:255},
+      theme:'grid'
+    });
+    doc.autoTable({
+      startY: y,
+      margin:{left:322},
+      tableWidth: 250,
+      head:[['Day','AM','PM']],
+      body: rowsRight,
+      styles:{fontSize:8, cellPadding:3, halign:'center'},
+      headStyles:{fillColor:[27,42,65], textColor:255},
+      theme:'grid'
+    });
+
+    const finalY = Math.max(doc.lastAutoTable.finalY, 700);
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(10);
+
+    doc.text("Driver's Signature:", 40, finalY + 34);
+    if(signatureDataUrl){
+      try{
+        doc.addImage(signatureDataUrl, 'PNG', 155, finalY + 16, 140, 36);
+      }catch(imgErr){
+        doc.line(155, finalY + 34, 295, finalY + 34);
+      }
+    }else{
+      doc.line(155, finalY + 34, 295, finalY + 34);
+    }
+    doc.text(`Date: ${e.date || '—'}`, 320, finalY + 34);
+    doc.text(`Print Name: ${e.driver || '—'}`, 40, finalY + 54);
+  });
+
+  return doc;
+}
+
+document.getElementById('compileBtn').addEventListener('click', async ()=>{
+  const status = document.getElementById('compileStatus');
+  const checkedIds = Array.from(document.querySelectorAll('.entry-check:checked')).map(cb=>cb.dataset.id);
+  if(checkedIds.length===0) return;
+
+  if(!window.jspdf){
+    showStatus(status, 'PDF library failed to load — check your connection and reload the page.', 'err');
+    return;
+  }
+
+  showStatus(status, 'Compiling ' + checkedIds.length + ' log(s)…', 'info');
+  try{
+    const allEntries = await loadAllEntries();
+    const selected = allEntries.filter(e=>checkedIds.includes(e.id));
+    const doc = buildPdfForEntries(selected, currentSignature);
+    const blob = doc.output('blob');
+    lastPdfBlob = blob;
+    lastPdfName = 'rider-logs-' + new Date().toISOString().slice(0,10) + '.pdf';
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = lastPdfName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+    showStatus(status, 'PDF downloaded (' + selected.length + ' log(s)).', 'ok');
+    document.getElementById('postCompileRow').style.display = 'flex';
+    document.getElementById('emailNote').style.display = 'block';
+  }catch(err){
+    console.error(err);
+    showStatus(status, 'Something went wrong building the PDF. Try again.', 'err');
+  }
+});
+
+document.getElementById('shareBtn').addEventListener('click', async ()=>{
+  const status = document.getElementById('compileStatus');
+  if(!lastPdfBlob){
+    showStatus(status, 'Compile a PDF first.', 'err');
+    return;
+  }
+  const file = new File([lastPdfBlob], lastPdfName, {type:'application/pdf'});
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({
+        files:[file],
+        title:'Rider Log',
+        text:'Compiled rider log(s) attached.'
+      });
+      showStatus(status, 'Share sheet opened — choose Mail or Gmail to send.', 'ok');
+      return;
+    }
+  }catch(err){
+    // user cancelled share or share failed — fall through to mailto
+    if(err && err.name === 'AbortError'){ return; }
+  }
+  // fallback: mailto draft, file already downloaded above
+  const subject = encodeURIComponent('Rider Log');
+  const body = encodeURIComponent('The compiled rider log PDF (' + lastPdfName + ') was just downloaded to your computer — please attach it to this email before sending.');
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  showStatus(status, 'Email draft opened — attach the downloaded PDF before sending.', 'info');
+});
+
+document.getElementById('selectAllBtn').addEventListener('click', ()=>{
+  const boxes = document.querySelectorAll('.entry-check');
+  const allChecked = Array.from(boxes).every(b=>b.checked);
+  boxes.forEach(b=> b.checked = !allChecked);
+  updateCompileButton();
+});
+
+document.getElementById('saveBtn').addEventListener('click', saveEntry);
+document.getElementById('clearBtn').addEventListener('click', clearForm);
+
+// ---------- backup: export / import ----------
+async function exportAllData(){
+  const status = document.getElementById('backupStatus');
+  try{
+    const entries = await loadAllEntries();
+    let signature = null;
+    try{
+      const sigRes = await storageAPI.get(SIG_KEY);
+      if(sigRes && sigRes.value) signature = sigRes.value;
+    }catch(e){ /* no signature saved */ }
+
+    const payload = {
+      app: 'rider-log',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      signature,
+      entries
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'rider-log-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+    showStatus(status, `Exported ${entries.length} log(s)${signature ? ' + signature' : ''}.`, 'ok');
+  }catch(err){
+    console.error(err);
+    showStatus(status, 'Export failed — try again.', 'err');
+  }
+}
+
+async function importDataFromFile(file){
+  const status = document.getElementById('backupStatus');
+  try{
+    const text = await file.text();
+    let payload;
+    try{ payload = JSON.parse(text); }
+    catch(e){ throw new Error('That file isn\'t valid JSON.'); }
+
+    if(!payload || !Array.isArray(payload.entries)){
+      throw new Error('That doesn\'t look like a Rider Log backup file.');
+    }
+
+    let count = 0;
+    for(const entry of payload.entries){
+      if(!entry.id) entry.id = 'e' + Date.now() + Math.random().toString(36).slice(2,7);
+      await storageAPI.set(STORAGE_PREFIX + entry.id, JSON.stringify(entry));
+      count++;
+    }
+
+    if(payload.signature){
+      await storageAPI.set(SIG_KEY, payload.signature);
+      currentSignature = payload.signature;
+      const img = new Image();
+      img.onload = ()=>{
+        sigCtx.fillStyle = '#ffffff';
+        sigCtx.fillRect(0,0,sigCanvas.width,sigCanvas.height);
+        sigCtx.drawImage(img, 0, 0, sigCanvas.width, sigCanvas.height);
+      };
+      img.src = payload.signature;
+      document.getElementById('sigSavedNote').style.display = 'block';
+    }
+
+    await refreshEntriesList();
+    showStatus(status, `Imported ${count} log(s)${payload.signature ? ' + signature' : ''}.`, 'ok');
+  }catch(err){
+    console.error(err);
+    showStatus(status, err.message || 'Import failed — check the file and try again.', 'err');
+  }
+}
+
+document.getElementById('exportBtn').addEventListener('click', exportAllData);
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  document.getElementById('importFile').click();
+});
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(file) importDataFromFile(file);
+  e.target.value = ''; // allow re-importing the same file later
+});
+
+// ---------- init ----------
+document.getElementById('storageModeLine').textContent =
+  hasClaudeStorage ? 'Storage: Claude cloud' : 'Storage: this browser only';
+refreshEntriesList();
+loadSignature();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(err=>{
+      console.warn('Service worker registration failed (this is fine on claude.ai — it only matters once hosted).', err);
+    });
+  });
+}
+</script>
+</body>
+</html>
