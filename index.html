@@ -352,6 +352,9 @@
             <tbody id="daysCol2"></tbody>
           </table>
         </div>
+        <div class="actions-row" style="margin-top:10px;">
+          <button class="btn btn-outline" id="clearDaysBtn" type="button">Clear Days</button>
+        </div>
 
         <div class="section-title">Sign Off</div>
 
@@ -374,13 +377,15 @@
             <input type="text" id="f-driver">
           </div>
           <div class="field">
-            <label for="f-date">Date</label>
-            <input type="text" id="f-date" placeholder="MM/DD/YYYY">
+            <label for="f-date">Date Signed</label>
+            <input type="date" id="f-date">
+            <p class="note" id="dateAutoNote" style="display:none;">Filled in with the last weekday of the month — change it if you signed on a different day.</p>
           </div>
         </div>
 
         <div class="actions-row">
           <button class="btn btn-primary" id="saveBtn">Save Entry</button>
+          <button class="btn btn-outline" id="nextMonthBtn">Start Next Month</button>
           <button class="btn btn-outline" id="clearBtn">Clear Form / New Entry</button>
         </div>
         <div class="status-msg" id="formStatus"></div>
@@ -427,6 +432,7 @@
 // ---------- constants ----------
 const STORAGE_PREFIX = 'riderlog:entries:';
 let currentEditId = null;
+let dateTouched = false;   // true once the driver picks a date themselves
 let lastPdfBlob = null;
 let lastPdfName = null;
 
@@ -614,6 +620,59 @@ function showStatus(el, msg, type){
   el._t = setTimeout(()=>{ el.classList.remove('show'); }, 5000);
 }
 
+// ---------- dates ----------
+function toISODate(d){
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+// "2026-09" -> "2026-09-30" (last Mon-Fri of that month)
+function lastWeekdayOfMonth(monthValue){
+  if(!monthValue) return '';
+  const parts = monthValue.split('-');
+  const y = parseInt(parts[0],10), m = parseInt(parts[1],10);
+  if(!y || !m) return '';
+  const d = new Date(y, m, 0);            // day 0 of next month = last day of this one
+  while(d.getDay() === 0 || d.getDay() === 6){  // 0 = Sunday, 6 = Saturday
+    d.setDate(d.getDate() - 1);
+  }
+  return toISODate(d);
+}
+
+// Accepts older MM/DD/YYYY entries as well as YYYY-MM-DD, returns YYYY-MM-DD
+function normalizeDateValue(v){
+  if(!v) return '';
+  const t = String(v).trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const us = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(us){
+    const pad = n => String(n).padStart(2,'0');
+    return `${us[3]}-${pad(us[1])}-${pad(us[2])}`;
+  }
+  return '';
+}
+
+// YYYY-MM-DD -> MM/DD/YYYY for the printed PDF
+function fmtDateForDisplay(v){
+  const iso = normalizeDateValue(v);
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  return `${m}/${d}/${y}`;
+}
+
+// Put the last weekday of the chosen month in the date box, unless the
+// driver has already picked a date themselves.
+function applyAutoDate(force){
+  const monthEl = document.getElementById('f-monthyear');
+  const dateEl = document.getElementById('f-date');
+  const note = document.getElementById('dateAutoNote');
+  if(!force && dateTouched) return;
+  const auto = lastWeekdayOfMonth(monthEl.value);
+  dateEl.value = auto;
+  if(force) dateTouched = false;
+  note.style.display = auto ? 'block' : 'none';
+}
+
 // ---------- form <-> entry object ----------
 function readForm(){
   return {
@@ -642,11 +701,14 @@ function fillForm(e){
   document.getElementById('f-split').value = e.split || '';
   document.getElementById('f-monthyear').value = e.monthYear || '';
   document.getElementById('f-driver').value = e.driver || '';
-  document.getElementById('f-date').value = e.date || '';
+  document.getElementById('f-date').value = normalizeDateValue(e.date);
+  dateTouched = !!normalizeDateValue(e.date);
+  document.getElementById('dateAutoNote').style.display = 'none';
   populateDays(e.days || {});
 }
 function clearForm(){
   currentEditId = null;
+  dateTouched = false;
   document.getElementById('editingBadge').style.display = 'none';
   document.getElementById('formHeading').textContent = 'New Rider Log';
   fillForm({});
@@ -858,7 +920,7 @@ function buildPdfForEntries(entries, signatureDataUrl){
     }else{
       doc.line(155, finalY + 34, 295, finalY + 34);
     }
-    doc.text(`Date: ${e.date || '—'}`, 320, finalY + 34);
+    doc.text(`Date: ${fmtDateForDisplay(e.date) || '—'}`, 320, finalY + 34);
     doc.text(`Print Name: ${e.driver || '—'}`, 40, finalY + 54);
   });
 
@@ -936,6 +998,63 @@ document.getElementById('selectAllBtn').addEventListener('click', ()=>{
 
 document.getElementById('saveBtn').addEventListener('click', saveEntry);
 document.getElementById('clearBtn').addEventListener('click', clearForm);
+
+// ---------- date wiring ----------
+document.getElementById('f-monthyear').addEventListener('change', ()=> applyAutoDate(false));
+document.getElementById('f-date').addEventListener('input', ()=>{
+  dateTouched = true;
+  document.getElementById('dateAutoNote').style.display = 'none';
+});
+
+// ---------- clearing the day grid ----------
+function countFilledDays(){
+  let n = 0;
+  document.querySelectorAll('#daysCol1 input, #daysCol2 input').forEach(inp=>{
+    if(inp.value.trim()) n++;
+  });
+  return n;
+}
+
+function clearDays(){
+  const status = document.getElementById('formStatus');
+  const filled = countFilledDays();
+  if(filled === 0){
+    showStatus(status, 'The day grid is already empty.', 'info');
+    return;
+  }
+  if(!confirm(`Clear all ${filled} filled day boxes? Student details, mileage and your signature stay as they are.`)) return;
+  populateDays({});
+  showStatus(status, 'Day grid cleared.', 'ok');
+}
+
+function startNextMonth(){
+  const status = document.getElementById('formStatus');
+  const monthEl = document.getElementById('f-monthyear');
+
+  let nextLabel = 'a new month';
+  if(monthEl.value){
+    const [y,m] = monthEl.value.split('-').map(Number);
+    const next = new Date(y, m, 1);               // m is 1-based, so this is the next month
+    const pad = n => String(n).padStart(2,'0');
+    monthEl.value = `${next.getFullYear()}-${pad(next.getMonth()+1)}`;
+    nextLabel = fmtMonthYear(monthEl.value);
+  }
+
+  populateDays({});
+  currentEditId = null;                            // save as a new entry, don't overwrite last month
+  document.getElementById('editingBadge').style.display = 'none';
+  document.getElementById('formHeading').textContent = 'New Rider Log';
+  applyAutoDate(true);                             // re-date for the new month
+  showStatus(status, `Ready for ${nextLabel}. Same student and mileage, days cleared — hit Save Entry when you're done.`, 'ok');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+document.getElementById('clearDaysBtn').addEventListener('click', clearDays);
+document.getElementById('nextMonthBtn').addEventListener('click', ()=>{
+  const filled = countFilledDays();
+  if(filled > 0 && !confirm(`Start a new month? This clears ${filled} filled day boxes and keeps the student details and mileage. Save this month first if you haven't.`)) return;
+  startNextMonth();
+});
 
 // ---------- backup: export / import ----------
 async function exportAllData(){
