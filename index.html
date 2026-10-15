@@ -119,7 +119,7 @@
     margin-bottom:4px;
   }
   .field{margin-bottom:14px;}
-  input[type=text], input[type=number], input[type=month]{
+  input[type=text], input[type=number], input[type=month], input[type=date], select{
     width:100%;
     padding:9px 10px;
     border:1px solid var(--paper-line);
@@ -206,6 +206,20 @@
   .btn:disabled{opacity:.45;cursor:not-allowed;}
 
   .actions-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px;}
+
+  .view-toggle{display:inline-flex;border:1.5px solid rgba(255,255,255,0.3);border-radius:7px;overflow:hidden;flex-shrink:0;}
+  .view-toggle button{
+    background:transparent;color:#c7d0dd;border:none;
+    padding:6px 13px;font-size:11.5px;font-weight:700;letter-spacing:.03em;
+    cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  .view-toggle button.active{background:var(--amber);color:#241503;}
+  .view-toggle button:focus-visible{outline:2px solid #fff;outline-offset:-2px;}
+
+  .sel-count{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;
+    color:var(--slate-soft);align-self:center;
+  }
 
   .entry{
     display:flex;align-items:flex-start;gap:10px;
@@ -396,8 +410,18 @@
     <div class="panel">
       <div class="panel-head">
         <h2>Saved Logs</h2>
+        <div class="view-toggle" role="group" aria-label="How to browse saved logs">
+          <button type="button" id="viewListBtn" class="active">List</button>
+          <button type="button" id="viewDropBtn">Dropdown</button>
+        </div>
       </div>
       <div class="panel-body">
+
+        <div class="field" id="riderPickWrap" style="display:none;">
+          <label for="riderSelect">Choose Rider</label>
+          <select id="riderSelect"></select>
+        </div>
+
         <div id="entriesList"></div>
 
         <div class="section-title">Backup &amp; Transfer</div>
@@ -407,12 +431,17 @@
           <button class="btn btn-outline" id="importBtn">Import Data</button>
           <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
         </div>
+        <div class="actions-row" style="margin-top:10px;">
+          <button class="btn btn-outline" id="cleanupBtn">Remove Old Months</button>
+        </div>
+        <p class="note">Removes saved logs from before this month. Export first — that downloaded file is your backup.</p>
         <div class="status-msg" id="backupStatus"></div>
 
         <div class="section-title">Compile &amp; Send</div>
         <div class="actions-row">
           <button class="btn btn-outline" id="selectAllBtn">Select All</button>
           <button class="btn btn-primary" id="compileBtn" disabled>Compile Selected → PDF</button>
+          <span class="sel-count" id="selCount">0 selected</span>
         </div>
         <div class="actions-row" id="postCompileRow" style="display:none;">
           <button class="btn btn-outline" id="shareBtn">Share / Email PDF</button>
@@ -422,6 +451,15 @@
           On desktop, browsers can't attach files to an email for you, so it'll open a blank email draft in your mail app instead — just drag the PDF (already downloaded) into that draft.
         </p>
         <div class="status-msg" id="compileStatus"></div>
+
+        <div class="section-title">Share Riders</div>
+        <p class="note">Send ticked riders to another driver — their details and day marks, without your sign-off. Importing merges into what you already have: AM and PM are filled in separately, and marks you've already made are never overwritten.</p>
+        <div class="actions-row">
+          <button class="btn btn-outline" id="shareRidersBtn" disabled>Share Selected Riders</button>
+          <button class="btn btn-outline" id="importRidersBtn">Import Riders</button>
+          <input type="file" id="importRidersFile" accept="application/json,.json" style="display:none;">
+        </div>
+        <div class="status-msg" id="ridersStatus"></div>
       </div>
     </div>
 
@@ -435,6 +473,14 @@ let currentEditId = null;
 let dateTouched = false;   // true once the driver picks a date themselves
 let lastPdfBlob = null;
 let lastPdfName = null;
+
+// how the saved-log panel is browsed, and what is ticked for compiling
+const VIEW_KEY = 'riderlog:viewmode';
+const EXPORT_KEY = 'riderlog:lastexport';
+let viewMode = 'list';        // 'list' or 'dropdown'
+let riderFilter = '';         // rider name shown in dropdown mode ('' = all)
+let selectedIds = new Set();  // survives filtering, so you can tick riders one at a time
+let allEntriesCache = [];
 
 // ---------- storage layer: use Claude's window.storage when available, ----------
 // ---------- otherwise fall back to this browser's IndexedDB ----------
@@ -759,6 +805,7 @@ async function loadAllEntries(){
 async function deleteEntry(id){
   try{
     await storageAPI.delete(STORAGE_PREFIX + id);
+    selectedIds.delete(id);
     if(currentEditId === id) clearForm();
     await refreshEntriesList();
   }catch(err){
@@ -773,23 +820,61 @@ function fmtMonthYear(my){
   return `${names[parseInt(m,10)]} ${y}`;
 }
 
+function riderNameOf(e){
+  return (e.student || '').trim() || 'Unnamed';
+}
+
+// In dropdown mode a chosen rider narrows the list; everything else shows all.
+function visibleEntries(entries){
+  if(viewMode === 'dropdown' && riderFilter){
+    return entries.filter(e => riderNameOf(e) === riderFilter);
+  }
+  return entries;
+}
+
+function rebuildRiderSelect(entries){
+  const sel = document.getElementById('riderSelect');
+  const names = [...new Set(entries.map(riderNameOf))].sort((a,b)=> a.localeCompare(b));
+  if(riderFilter && !names.includes(riderFilter)) riderFilter = '';   // rider no longer has logs
+  const opts = ['<option value="">All riders</option>'].concat(names.map(n=>{
+    const count = entries.filter(e => riderNameOf(e) === n).length;
+    return `<option value="${escapeHtml(n)}">${escapeHtml(n)} (${count})</option>`;
+  }));
+  sel.innerHTML = opts.join('');
+  sel.value = riderFilter;
+}
+
 async function refreshEntriesList(){
   const entries = await loadAllEntries();
+  allEntriesCache = entries;
   const list = document.getElementById('entriesList');
   document.getElementById('entryCount').textContent = entries.length + (entries.length===1 ? ' saved log' : ' saved logs');
 
+  // drop ticks for logs that no longer exist
+  const liveIds = new Set(entries.map(e=>e.id));
+  [...selectedIds].forEach(id => { if(!liveIds.has(id)) selectedIds.delete(id); });
+
+  rebuildRiderSelect(entries);
+
   if(entries.length === 0){
     list.innerHTML = '<div class="empty-state">No saved logs yet.<br>Fill out the form and click "Save Entry".</div>';
-    document.getElementById('compileBtn').disabled = true;
+    updateCompileButton();
+    return;
+  }
+
+  const shown = visibleEntries(entries);
+  if(shown.length === 0){
+    list.innerHTML = '<div class="empty-state">No saved logs for that rider.</div>';
+    updateCompileButton();
     return;
   }
 
   list.innerHTML = '';
-  entries.forEach(e=>{
+  shown.forEach(e=>{
     const row = document.createElement('div');
     row.className = 'entry';
     row.innerHTML = `
-      <input type="checkbox" class="entry-check" data-id="${e.id}">
+      <input type="checkbox" class="entry-check" data-id="${e.id}"${selectedIds.has(e.id) ? ' checked' : ''}>
       <div class="meta">
         <div class="name">${escapeHtml(e.student || 'Unnamed')}</div>
         <div class="sub">${fmtMonthYear(e.monthYear)} · ${escapeHtml(e.home || 'no district')}</div>
@@ -820,14 +905,38 @@ async function refreshEntriesList(){
     });
   });
   list.querySelectorAll('.entry-check').forEach(cb=>{
-    cb.addEventListener('change', updateCompileButton);
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) selectedIds.add(cb.dataset.id);
+      else selectedIds.delete(cb.dataset.id);
+      updateCompileButton();
+    });
   });
   updateCompileButton();
 }
 
 function updateCompileButton(){
-  const anyChecked = document.querySelectorAll('.entry-check:checked').length > 0;
-  document.getElementById('compileBtn').disabled = !anyChecked;
+  const n = selectedIds.size;
+  document.getElementById('compileBtn').disabled = (n === 0);
+  const shareRiders = document.getElementById('shareRidersBtn');
+  if(shareRiders) shareRiders.disabled = (n === 0);
+  const count = document.getElementById('selCount');
+  if(count) count.textContent = (n === 1 ? '1 selected' : n + ' selected');
+  const selAll = document.getElementById('selectAllBtn');
+  if(selAll){
+    selAll.textContent = (viewMode === 'dropdown' && riderFilter) ? 'Select All Shown' : 'Select All';
+  }
+}
+
+async function setViewMode(mode, skipSave){
+  viewMode = (mode === 'dropdown') ? 'dropdown' : 'list';
+  document.getElementById('viewListBtn').classList.toggle('active', viewMode === 'list');
+  document.getElementById('viewDropBtn').classList.toggle('active', viewMode === 'dropdown');
+  document.getElementById('riderPickWrap').style.display = (viewMode === 'dropdown') ? 'block' : 'none';
+  if(viewMode === 'list') riderFilter = '';
+  if(!skipSave){
+    try{ await storageAPI.set(VIEW_KEY, viewMode); }catch(e){ /* preference just won't stick */ }
+  }
+  await refreshEntriesList();
 }
 
 function escapeHtml(s){
@@ -929,7 +1038,7 @@ function buildPdfForEntries(entries, signatureDataUrl){
 
 document.getElementById('compileBtn').addEventListener('click', async ()=>{
   const status = document.getElementById('compileStatus');
-  const checkedIds = Array.from(document.querySelectorAll('.entry-check:checked')).map(cb=>cb.dataset.id);
+  const checkedIds = [...selectedIds];
   if(checkedIds.length===0) return;
 
   if(!window.jspdf){
@@ -989,11 +1098,18 @@ document.getElementById('shareBtn').addEventListener('click', async ()=>{
   showStatus(status, 'Email draft opened — attach the downloaded PDF before sending.', 'info');
 });
 
-document.getElementById('selectAllBtn').addEventListener('click', ()=>{
-  const boxes = document.querySelectorAll('.entry-check');
-  const allChecked = Array.from(boxes).every(b=>b.checked);
-  boxes.forEach(b=> b.checked = !allChecked);
-  updateCompileButton();
+document.getElementById('selectAllBtn').addEventListener('click', async ()=>{
+  const scope = visibleEntries(allEntriesCache);
+  const allOn = scope.length > 0 && scope.every(e => selectedIds.has(e.id));
+  scope.forEach(e => allOn ? selectedIds.delete(e.id) : selectedIds.add(e.id));
+  await refreshEntriesList();
+});
+
+document.getElementById('viewListBtn').addEventListener('click', ()=> setViewMode('list'));
+document.getElementById('viewDropBtn').addEventListener('click', ()=> setViewMode('dropdown'));
+document.getElementById('riderSelect').addEventListener('change', async (e)=>{
+  riderFilter = e.target.value;
+  await refreshEntriesList();
 });
 
 document.getElementById('saveBtn').addEventListener('click', saveEntry);
@@ -1056,6 +1172,217 @@ document.getElementById('nextMonthBtn').addEventListener('click', ()=>{
   startNextMonth();
 });
 
+// ---------- sharing riders between drivers ----------
+// Two drivers can cover the same student at different times of day, so an
+// imported file is merged in cell by cell rather than replacing anything.
+
+function riderKey(e){
+  return (e.student || '').trim().toLowerCase() + '|' + (e.monthYear || '');
+}
+
+// Mine always wins. Theirs only fills a box I left empty.
+function mergeDays(mine, theirs){
+  const days = {};
+  let added = 0, keptMine = 0;
+  for(let d = 1; d <= 31; d++){
+    const a = (mine && mine[d]) || {am:'', pm:''};
+    const b = (theirs && theirs[d]) || {am:'', pm:''};
+    const row = {am:'', pm:''};
+    for(const part of ['am','pm']){
+      const m = String(a[part] || '').trim();
+      const t = String(b[part] || '').trim();
+      if(m){
+        row[part] = m;                      // keep what this driver already marked
+        if(t && t !== m) keptMine++;        // both marked it differently
+      }else if(t){
+        row[part] = t;                      // empty here, so take theirs
+        added++;
+      }
+    }
+    days[d] = row;
+  }
+  return { days, added, keptMine };
+}
+
+function buildRiderPayload(entries){
+  return {
+    app: 'rider-log',
+    type: 'riders',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    entries: entries.map(e=>{
+      const copy = { ...e };
+      delete copy.driver;      // sign-off belongs to whoever signs the form
+      delete copy.date;
+      delete copy.savedAt;
+      return copy;
+    })
+  };
+}
+
+async function shareSelectedRiders(){
+  const status = document.getElementById('ridersStatus');
+  if(selectedIds.size === 0){
+    showStatus(status, 'Tick the riders you want to send first.', 'err');
+    return;
+  }
+  try{
+    const all = await loadAllEntries();
+    const picked = all.filter(e => selectedIds.has(e.id));
+    const payload = buildRiderPayload(picked);
+    const json = JSON.stringify(payload, null, 2);
+    const name = 'riders-' + new Date().toISOString().slice(0,10) + '.json';
+    const blob = new Blob([json], {type:'application/json'});
+
+    const file = new File([blob], name, {type:'application/json'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({ files:[file], title:'Rider details', text:`${picked.length} rider log(s) from Rider Log.` });
+        showStatus(status, `Shared ${picked.length} rider(s).`, 'ok');
+        return;
+      }catch(err){
+        if(err && err.name === 'AbortError') return;   // user backed out
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+    showStatus(status, `Saved ${picked.length} rider(s) to ${name} — send that file to the other driver.`, 'ok');
+  }catch(err){
+    console.error(err);
+    showStatus(status, 'Could not share those riders — try again.', 'err');
+  }
+}
+
+async function importRiders(payload, statusEl){
+  const status = statusEl || document.getElementById('ridersStatus');
+  const incoming = Array.isArray(payload.entries) ? payload.entries : [];
+  if(incoming.length === 0){
+    showStatus(status, 'That file has no riders in it.', 'err');
+    return;
+  }
+
+  const existing = await loadAllEntries();
+  const byKey = new Map(existing.map(e => [riderKey(e), e]));
+  let mergedCount = 0, addedCount = 0, marksAdded = 0, marksKept = 0;
+
+  for(const inc of incoming){
+    const mine = byKey.get(riderKey(inc));
+    if(mine){
+      const r = mergeDays(mine.days, inc.days);
+      const updated = { ...mine, days: r.days };
+      // fill in detail fields only where this driver left them blank
+      for(const f of ['pickup','residence','home','total','am','pm','split']){
+        if(!String(updated[f] || '').trim() && String(inc[f] || '').trim()) updated[f] = inc[f];
+      }
+      updated.savedAt = new Date().toISOString();
+      await storageAPI.set(STORAGE_PREFIX + updated.id, JSON.stringify(updated));
+      mergedCount++; marksAdded += r.added; marksKept += r.keptMine;
+    }else{
+      const id = 'e' + Date.now() + Math.random().toString(36).slice(2,7);
+      const rec = { ...inc, id, savedAt: new Date().toISOString() };
+      delete rec.driver; delete rec.date;
+      await storageAPI.set(STORAGE_PREFIX + id, JSON.stringify(rec));
+      addedCount++;
+    }
+  }
+
+  await refreshEntriesList();
+  const bits = [];
+  if(addedCount) bits.push(`added ${addedCount} new rider log(s)`);
+  if(mergedCount) bits.push(`merged ${mergedCount} you already had`);
+  if(marksAdded) bits.push(`filled ${marksAdded} empty AM/PM box(es)`);
+  if(marksKept) bits.push(`kept ${marksKept} of your own mark(s) where both had one`);
+  showStatus(status, bits.length ? (bits.join(', ') + '.') : 'Nothing to change — your logs already had everything in that file.', 'ok');
+}
+
+async function importRidersFromFile(file){
+  const status = document.getElementById('ridersStatus');
+  try{
+    const text = await file.text();
+    let payload;
+    try{ payload = JSON.parse(text); }
+    catch(e){ throw new Error('That file isn\'t valid JSON.'); }
+    if(!payload || !Array.isArray(payload.entries)){
+      throw new Error('That doesn\'t look like a Rider Log file.');
+    }
+    await importRiders(payload, status);
+  }catch(err){
+    console.error(err);
+    showStatus(status, err.message || 'Import failed — check the file and try again.', 'err');
+  }
+}
+
+document.getElementById('shareRidersBtn').addEventListener('click', shareSelectedRiders);
+document.getElementById('importRidersBtn').addEventListener('click', ()=>{
+  document.getElementById('importRidersFile').click();
+});
+document.getElementById('importRidersFile').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(file) importRidersFromFile(file);
+  e.target.value = '';
+});
+
+// ---------- clearing out finished months ----------
+function currentMonthKey(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+// "YYYY-MM" strings compare correctly as plain text
+function isOldMonth(e){
+  return !!e.monthYear && e.monthYear < currentMonthKey();
+}
+
+// Has a backup been taken since these logs were last saved?
+async function exportedSince(entries){
+  try{
+    const r = await storageAPI.get(EXPORT_KEY);
+    if(!r || !r.value) return false;
+    const newestSave = entries.reduce((m,e)=> (e.savedAt||'') > m ? (e.savedAt||'') : m, '');
+    return String(r.value) >= newestSave;
+  }catch(e){ return false; }
+}
+
+async function removeOldMonths(opts){
+  opts = opts || {};
+  const status = document.getElementById('backupStatus');
+  const entries = await loadAllEntries();
+  const old = entries.filter(isOldMonth);
+  const undated = entries.filter(e => !e.monthYear);
+
+  if(old.length === 0){
+    if(!opts.quiet){
+      showStatus(status, `Nothing to remove — no saved logs from before ${fmtMonthYear(currentMonthKey())}.`, 'info');
+    }
+    return 0;
+  }
+
+  if(!opts.skipConfirm){
+    const preview = old.slice(0,6).map(e => `• ${riderNameOf(e)} — ${fmtMonthYear(e.monthYear)}`).join('\n');
+    const more = old.length > 6 ? `\n…and ${old.length - 6} more` : '';
+    const backedUp = await exportedSince(old);
+    const warn = backedUp ? '' : '\n\nNote: there is no export on record since these were saved. Export first if you want a backup.';
+    const msg = `Remove ${old.length} saved log(s) from before ${fmtMonthYear(currentMonthKey())}?\n\n${preview}${more}${warn}\n\nThis cannot be undone.`;
+    if(!confirm(msg)) return 0;
+  }
+
+  for(const e of old){
+    await storageAPI.delete(STORAGE_PREFIX + e.id);
+    selectedIds.delete(e.id);
+    if(currentEditId === e.id) clearForm();
+  }
+  await refreshEntriesList();
+  const kept = undated.length ? ` Kept ${undated.length} log(s) with no month set.` : '';
+  showStatus(status, `Removed ${old.length} old log(s).${kept}`, 'ok');
+  return old.length;
+}
+
+document.getElementById('cleanupBtn').addEventListener('click', ()=> removeOldMonths());
+
 // ---------- backup: export / import ----------
 async function exportAllData(){
   const status = document.getElementById('backupStatus');
@@ -1082,7 +1409,17 @@ async function exportAllData(){
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(()=>URL.revokeObjectURL(url), 4000);
 
+    try{ await storageAPI.set(EXPORT_KEY, new Date().toISOString()); }catch(e){ /* non-fatal */ }
     showStatus(status, `Exported ${entries.length} log(s)${signature ? ' + signature' : ''}.`, 'ok');
+
+    // the backup is written, so offer to tidy up finished months
+    const old = entries.filter(isOldMonth);
+    if(old.length){
+      setTimeout(async ()=>{
+        const ok = confirm(`Backup downloaded.\n\nRemove ${old.length} saved log(s) from before ${fmtMonthYear(currentMonthKey())} now?\nThey are included in the file you just saved.`);
+        if(ok) await removeOldMonths({ skipConfirm:true });
+      }, 500);
+    }
   }catch(err){
     console.error(err);
     showStatus(status, 'Export failed — try again.', 'err');
@@ -1099,6 +1436,13 @@ async function importDataFromFile(file){
 
     if(!payload || !Array.isArray(payload.entries)){
       throw new Error('That doesn\'t look like a Rider Log backup file.');
+    }
+
+    // a shared-rider file lands here if the wrong button was used — merge it
+    // instead of restoring, so nothing already marked gets overwritten
+    if(payload.type === 'riders'){
+      await importRiders(payload, status);
+      return;
     }
 
     let count = 0;
@@ -1142,7 +1486,14 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
 // ---------- init ----------
 document.getElementById('storageModeLine').textContent =
   hasClaudeStorage ? 'Storage: Claude cloud' : 'Storage: this browser only';
-refreshEntriesList();
+(async ()=>{
+  let saved = 'list';
+  try{
+    const r = await storageAPI.get(VIEW_KEY);
+    if(r && r.value) saved = String(r.value);
+  }catch(e){ /* first run */ }
+  await setViewMode(saved, true);
+})();
 loadSignature();
 
 if('serviceWorker' in navigator){
