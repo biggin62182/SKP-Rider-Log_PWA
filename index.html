@@ -216,6 +216,21 @@
   .view-toggle button.active{background:var(--amber);color:#241503;}
   .view-toggle button:focus-visible{outline:2px solid #fff;outline-offset:-2px;}
 
+  .ver{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;font-weight:600;letter-spacing:.04em;
+    color:var(--amber);
+    background:rgba(232,163,61,0.14);
+    border:1px solid rgba(232,163,61,0.35);
+    padding:2px 8px;border-radius:20px;
+    vertical-align:middle;margin-left:10px;white-space:nowrap;
+  }
+  .btn-quiet{
+    background:transparent;color:var(--slate-soft);
+    border:1.5px dashed var(--paper-line);font-weight:600;
+  }
+  .btn-quiet:hover{border-color:var(--danger);color:var(--danger);}
+
   .sel-count{
     font-family:'IBM Plex Mono',monospace;font-size:12px;
     color:var(--slate-soft);align-self:center;
@@ -293,7 +308,7 @@
   <header class="top">
     <div>
       <div class="brand-eyebrow">Transportation Dept · Manifest Tool</div>
-      <h1>Rider Log</h1>
+      <h1>Rider Log <span class="ver" id="appVersion"></span></h1>
       <p>Fill out a monthly rider log, save it, then compile any set of saved logs into one PDF ready to download or send.</p>
     </div>
     <div class="route-line">
@@ -400,7 +415,9 @@
         <div class="actions-row">
           <button class="btn btn-primary" id="saveBtn">Save Entry</button>
           <button class="btn btn-outline" id="nextMonthBtn">Start Next Month</button>
-          <button class="btn btn-outline" id="clearBtn">Clear Form / New Entry</button>
+        </div>
+        <div class="actions-row" style="margin-top:18px;">
+          <button class="btn btn-quiet" id="clearBtn">Clear Form / New Entry</button>
         </div>
         <div class="status-msg" id="formStatus"></div>
       </div>
@@ -468,6 +485,8 @@
 
 <script>
 // ---------- constants ----------
+const APP_VERSION = '1.3.1';
+const APP_BUILD = '2026-11-09';
 const STORAGE_PREFIX = 'riderlog:entries:';
 let currentEditId = null;
 let dateTouched = false;   // true once the driver picks a date themselves
@@ -772,7 +791,8 @@ async function saveEntry(){
   try{
     const res = await storageAPI.set(STORAGE_PREFIX + id, JSON.stringify(record));
     if(!res) throw new Error('no result');
-    showStatus(document.getElementById('formStatus'), currentEditId ? 'Entry updated.' : 'Entry saved.', 'ok');
+    showStatus(document.getElementById('formStatus'),
+      (currentEditId ? 'Updated' : 'Saved') + ' \u2014 this rider is in Saved Logs below.', 'ok');
     currentEditId = id;
     document.getElementById('editingBadge').style.display = 'inline-block';
     document.getElementById('formHeading').textContent = 'Editing Rider Log';
@@ -835,7 +855,7 @@ function visibleEntries(entries){
 function rebuildRiderSelect(entries){
   const sel = document.getElementById('riderSelect');
   const names = [...new Set(entries.map(riderNameOf))].sort((a,b)=> a.localeCompare(b));
-  if(riderFilter && !names.includes(riderFilter)) riderFilter = '';   // rider no longer has logs
+  if(riderFilter && !names.includes(riderFilter)) riderFilter = '';
   const opts = ['<option value="">All riders</option>'].concat(names.map(n=>{
     const count = entries.filter(e => riderNameOf(e) === n).length;
     return `<option value="${escapeHtml(n)}">${escapeHtml(n)} (${count})</option>`;
@@ -850,7 +870,6 @@ async function refreshEntriesList(){
   const list = document.getElementById('entriesList');
   document.getElementById('entryCount').textContent = entries.length + (entries.length===1 ? ' saved log' : ' saved logs');
 
-  // drop ticks for logs that no longer exist
   const liveIds = new Set(entries.map(e=>e.id));
   [...selectedIds].forEach(id => { if(!liveIds.has(id)) selectedIds.delete(id); });
 
@@ -1113,7 +1132,24 @@ document.getElementById('riderSelect').addEventListener('change', async (e)=>{
 });
 
 document.getElementById('saveBtn').addEventListener('click', saveEntry);
-document.getElementById('clearBtn').addEventListener('click', clearForm);
+// Does the form currently hold anything worth warning about?
+function formHasContent(){
+  const ids = ['f-student','f-pickup','f-residence','f-home','f-total','f-am','f-pm','f-split','f-monthyear','f-driver','f-date'];
+  if(ids.some(id => String(document.getElementById(id).value || '').trim())) return true;
+  return countFilledDays() > 0;
+}
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(formHasContent()){
+    const saved = currentEditId
+      ? 'The saved copy stays in Saved Logs \u2014 tap Edit on it to bring this back.'
+      : "This log hasn't been saved yet, so anything on screen will be lost.";
+    if(!confirm('Empty this form and start a new one?\n\n' + saved)) return;
+  }
+  clearForm();
+  showStatus(document.getElementById('formStatus'),
+    'Form cleared. Nothing was deleted \u2014 your saved riders are in Saved Logs below.', 'info');
+});
 
 // ---------- date wiring ----------
 document.getElementById('f-monthyear').addEventListener('change', ()=> applyAutoDate(false));
@@ -1173,9 +1209,6 @@ document.getElementById('nextMonthBtn').addEventListener('click', ()=>{
 });
 
 // ---------- sharing riders between drivers ----------
-// Two drivers can cover the same student at different times of day, so an
-// imported file is merged in cell by cell rather than replacing anything.
-
 function riderKey(e){
   return (e.student || '').trim().toLowerCase() + '|' + (e.monthYear || '');
 }
@@ -1192,10 +1225,10 @@ function mergeDays(mine, theirs){
       const m = String(a[part] || '').trim();
       const t = String(b[part] || '').trim();
       if(m){
-        row[part] = m;                      // keep what this driver already marked
-        if(t && t !== m) keptMine++;        // both marked it differently
+        row[part] = m;
+        if(t && t !== m) keptMine++;
       }else if(t){
-        row[part] = t;                      // empty here, so take theirs
+        row[part] = t;
         added++;
       }
     }
@@ -1209,10 +1242,11 @@ function buildRiderPayload(entries){
     app: 'rider-log',
     type: 'riders',
     version: 1,
+    appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
     entries: entries.map(e=>{
       const copy = { ...e };
-      delete copy.driver;      // sign-off belongs to whoever signs the form
+      delete copy.driver;
       delete copy.date;
       delete copy.savedAt;
       return copy;
@@ -1241,7 +1275,7 @@ async function shareSelectedRiders(){
         showStatus(status, `Shared ${picked.length} rider(s).`, 'ok');
         return;
       }catch(err){
-        if(err && err.name === 'AbortError') return;   // user backed out
+        if(err && err.name === 'AbortError') return;
       }
     }
 
@@ -1274,7 +1308,6 @@ async function importRiders(payload, statusEl){
     if(mine){
       const r = mergeDays(mine.days, inc.days);
       const updated = { ...mine, days: r.days };
-      // fill in detail fields only where this driver left them blank
       for(const f of ['pickup','residence','home','total','am','pm','split']){
         if(!String(updated[f] || '').trim() && String(inc[f] || '').trim()) updated[f] = inc[f];
       }
@@ -1332,12 +1365,10 @@ function currentMonthKey(){
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-// "YYYY-MM" strings compare correctly as plain text
 function isOldMonth(e){
   return !!e.monthYear && e.monthYear < currentMonthKey();
 }
 
-// Has a backup been taken since these logs were last saved?
 async function exportedSince(entries){
   try{
     const r = await storageAPI.get(EXPORT_KEY);
@@ -1397,6 +1428,7 @@ async function exportAllData(){
     const payload = {
       app: 'rider-log',
       version: 1,
+      appVersion: APP_VERSION,
       exportedAt: new Date().toISOString(),
       signature,
       entries
@@ -1412,7 +1444,6 @@ async function exportAllData(){
     try{ await storageAPI.set(EXPORT_KEY, new Date().toISOString()); }catch(e){ /* non-fatal */ }
     showStatus(status, `Exported ${entries.length} log(s)${signature ? ' + signature' : ''}.`, 'ok');
 
-    // the backup is written, so offer to tidy up finished months
     const old = entries.filter(isOldMonth);
     if(old.length){
       setTimeout(async ()=>{
@@ -1438,8 +1469,6 @@ async function importDataFromFile(file){
       throw new Error('That doesn\'t look like a Rider Log backup file.');
     }
 
-    // a shared-rider file lands here if the wrong button was used — merge it
-    // instead of restoring, so nothing already marked gets overwritten
     if(payload.type === 'riders'){
       await importRiders(payload, status);
       return;
@@ -1484,8 +1513,10 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
 });
 
 // ---------- init ----------
+document.getElementById('appVersion').textContent = 'v' + APP_VERSION;
 document.getElementById('storageModeLine').textContent =
-  hasClaudeStorage ? 'Storage: Claude cloud' : 'Storage: this browser only';
+  (hasClaudeStorage ? 'Storage: Claude cloud' : 'Storage: this browser only') +
+  ' \u00b7 v' + APP_VERSION + ' (' + APP_BUILD + ')';
 (async ()=>{
   let saved = 'list';
   try{
