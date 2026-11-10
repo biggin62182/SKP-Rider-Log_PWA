@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rider-log-cache-v3';
+const CACHE_NAME = 'rider-log-cache-v1.3.1';
 const APP_SHELL = [
   './',
   './index.html',
