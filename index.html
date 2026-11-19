@@ -231,6 +231,74 @@
   }
   .btn-quiet:hover{border-color:var(--danger);color:var(--danger);}
 
+  .btn-help{
+    background:var(--amber);color:#241503;
+    font-size:15px;padding:11px 22px;border-radius:8px;
+  }
+  .btn-help:hover{background:var(--amber-deep);}
+
+  .help-overlay{
+    position:fixed;inset:0;z-index:50;
+    background:rgba(13,20,32,0.72);
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;overflow-y:auto;
+  }
+  .help-overlay[hidden]{display:none;}
+  .help-panel{
+    background:var(--paper);border-radius:var(--radius);
+    width:100%;max-width:680px;max-height:90vh;
+    display:flex;flex-direction:column;
+    box-shadow:0 20px 60px rgba(0,0,0,0.45);
+  }
+  .help-head{
+    background:var(--slate);color:#fff;
+    padding:16px 20px;border-radius:var(--radius) var(--radius) 0 0;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  }
+  .help-head h2{margin:0;font-size:19px;font-weight:800;}
+  .help-head-btns{display:flex;gap:8px;}
+  .help-body{padding:22px 24px 30px;overflow-y:auto;}
+  .help-body h3{
+    font-size:18px;margin:26px 0 8px;color:var(--ink);
+    padding-bottom:6px;border-bottom:2px solid var(--amber);
+  }
+  .help-body h3:first-child{margin-top:0;}
+  .help-body p, .help-body li{
+    font-size:16px;line-height:1.65;color:#2b3a4f;margin:7px 0;
+  }
+  .help-body ol, .help-body ul{margin:7px 0;padding-left:22px;}
+  .help-body li{margin-bottom:7px;}
+  .help-body b{color:var(--ink);background:rgba(232,163,61,0.22);padding:1px 5px;border-radius:4px;}
+  .help-callout{
+    background:#fff;border-left:5px solid var(--ok);
+    padding:14px 16px;border-radius:6px;margin:14px 0;
+  }
+  .help-callout.warn{border-left-color:var(--amber-deep);}
+  .help-intro{font-size:17px;line-height:1.6;}
+
+  @media print{
+    body.printing-help{background:#fff;padding:0;}
+    body.printing-help .wrap{display:none;}
+    body.printing-help .help-overlay{
+      position:static;background:none;padding:0;overflow:visible;display:block;
+    }
+    body.printing-help .help-panel{
+      max-width:none;max-height:none;box-shadow:none;border-radius:0;background:#fff;
+    }
+    body.printing-help .help-head{background:#fff;color:#000;border-bottom:3px solid #000;}
+    body.printing-help .help-head-btns{display:none;}
+    body.printing-help .help-body h3{page-break-after:avoid;}
+    body.printing-help .help-callout{page-break-inside:avoid;border-left:5px solid #666;}
+  }
+
+  textarea{
+    width:100%;padding:9px 10px;
+    border:1px solid var(--paper-line);border-radius:6px;background:#fff;
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink);
+    resize:vertical;
+  }
+  textarea:focus{outline:2px solid var(--amber);outline-offset:1px;}
+
   .sel-count{
     font-family:'IBM Plex Mono',monospace;font-size:12px;
     color:var(--slate-soft);align-self:center;
@@ -311,6 +379,8 @@
       <h1>Rider Log <span class="ver" id="appVersion"></span></h1>
       <p>Fill out a monthly rider log, save it, then compile any set of saved logs into one PDF ready to download or send.</p>
     </div>
+    <button class="btn btn-help" id="helpBtn" type="button">Help &amp; Instructions</button>
+
     <div class="route-line">
       <span class="dot"></span><span class="dash"></span>
       <span id="entryCount">0 saved logs</span>
@@ -446,7 +516,7 @@
         <div class="actions-row">
           <button class="btn btn-outline" id="exportBtn">Export All Data</button>
           <button class="btn btn-outline" id="importBtn">Import Data</button>
-          <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
+          <input type="file" id="importFile" style="display:none;">
         </div>
         <div class="actions-row" style="margin-top:10px;">
           <button class="btn btn-outline" id="cleanupBtn">Remove Old Months</button>
@@ -472,10 +542,31 @@
         <div class="section-title">Share Riders</div>
         <p class="note">Send ticked riders to another driver — their details and day marks, without your sign-off. Importing merges into what you already have: AM and PM are filled in separately, and marks you've already made are never overwritten.</p>
         <div class="actions-row">
-          <button class="btn btn-outline" id="shareRidersBtn" disabled>Share Selected Riders</button>
-          <button class="btn btn-outline" id="importRidersBtn">Import Riders</button>
-          <input type="file" id="importRidersFile" accept="application/json,.json" style="display:none;">
+          <button class="btn btn-outline" id="shareRidersBtn" disabled>Send as File</button>
+          <button class="btn btn-outline" id="copyRidersBtn" disabled>Copy as Text</button>
         </div>
+        <p class="note">Phones often refuse to open an attached data file. If the other driver can't open yours, use <strong>Copy as Text</strong> and paste it straight into the text message or email — no attachment involved. They bring it in with <strong>Paste Text</strong>.</p>
+
+        <div id="copyWrap" style="display:none;margin-top:12px;">
+          <label for="copyBox">Rider text — if it didn't copy on its own, tap in the box, select all, and copy</label>
+          <textarea id="copyBox" rows="5" readonly></textarea>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn btn-outline" id="importRidersBtn">Open a File</button>
+          <button class="btn btn-outline" id="pasteRidersBtn">Paste Text</button>
+          <input type="file" id="importRidersFile" style="display:none;">
+        </div>
+
+        <div id="pasteWrap" style="display:none;margin-top:12px;">
+          <label for="pasteBox">Paste what the other driver sent you</label>
+          <textarea id="pasteBox" rows="5" placeholder="Paste the whole message here, then tap Add Riders."></textarea>
+          <div class="actions-row" style="margin-top:8px;">
+            <button class="btn btn-primary" id="pasteGoBtn">Add Riders</button>
+            <button class="btn btn-quiet" id="pasteCancelBtn">Cancel</button>
+          </div>
+        </div>
+
         <div class="status-msg" id="ridersStatus"></div>
       </div>
     </div>
@@ -483,10 +574,91 @@
   </div>
 </div>
 
+<div class="help-overlay" id="helpOverlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle" hidden>
+  <div class="help-panel">
+    <div class="help-head">
+      <h2 id="helpTitle">How to use Rider Log</h2>
+      <div class="help-head-btns">
+        <button class="btn btn-outline" id="helpPrintBtn" type="button" style="background:#fff;">Print</button>
+        <button class="btn btn-primary" id="helpCloseBtn" type="button">Close</button>
+      </div>
+    </div>
+    <div class="help-body">
+
+      <p class="help-intro">This app keeps your rider logs on your phone. At the end of the month you turn them into one PDF to hand in.</p>
+      <p class="help-intro">Take your time. Nothing gets deleted unless you answer yes to a question first.</p>
+
+      <h3>1. Fill out a rider</h3>
+      <ol>
+        <li>Type the student's name and address at the top.</li>
+        <li>Pick the month under <b>Month / Year</b>.</li>
+        <li>In the <b>Daily Log</b> boxes, mark each day you drove them. Use the <b>AM</b> box for morning and the <b>PM</b> box for afternoon. An X is fine.</li>
+      </ol>
+
+      <h3>2. Save it</h3>
+      <p>Tap <b>Save Entry</b>.</p>
+      <p>The student's name now appears in the <b>Saved Logs</b> list, further down the screen.</p>
+
+      <h3>3. If the form goes blank, nothing is lost</h3>
+      <div class="help-callout">
+        <p><b>Your work is safe.</b> A blank form just means the app is ready for the next student.</p>
+        <p>Scroll down to <b>Saved Logs</b>, find the name, and tap <b>Edit</b>. Everything comes back exactly as you left it.</p>
+      </div>
+
+      <h3>4. Go back to a student later</h3>
+      <ol>
+        <li>Scroll down to <b>Saved Logs</b>.</li>
+        <li>Tap <b>Edit</b> next to the name.</li>
+        <li>Change what you need, then tap <b>Save Entry</b> again.</li>
+      </ol>
+
+      <h3>5. Sign your name once</h3>
+      <p>Draw your name with your finger in the signature box, then tap <b>Save Signature</b>.</p>
+      <p>You only do this one time. Your signature goes on every form you print from now on.</p>
+
+      <h3>6. Make the PDF to turn in</h3>
+      <ol>
+        <li>Scroll down to <b>Saved Logs</b>.</li>
+        <li>Tap the small square next to each student you want included.</li>
+        <li>Tap <b>Compile Selected &rarr; PDF</b>. The PDF saves to your phone.</li>
+        <li>Tap <b>Share / Email PDF</b> to send it in.</li>
+      </ol>
+
+      <h3>7. Start the next month</h3>
+      <p>Open the student, then tap <b>Start Next Month</b>.</p>
+      <p>The name and the miles stay. The day boxes empty out. The month moves forward one.</p>
+
+      <h3>8. Send a student to another driver</h3>
+      <p>Do this when someone else will be driving one of your students.</p>
+      <ol>
+        <li>Tap the small square next to that student in <b>Saved Logs</b>.</li>
+        <li>Tap <b>Copy as Text</b>.</li>
+        <li>Open your text messages or email, paste it in, and send.</li>
+      </ol>
+      <p>The other driver taps <b>Paste Text</b>, pastes the message in, and taps <b>Add Riders</b>.</p>
+      <div class="help-callout">
+        <p>Marks you already made are never changed by this. If you marked the morning and they marked the afternoon, you both end up with both.</p>
+      </div>
+
+      <h3>9. Keep a backup</h3>
+      <p>Once a month, tap <b>Export All Data</b> and save the file somewhere safe, like your email.</p>
+      <p>That file is what gets your logs back if your phone is lost or replaced.</p>
+      <div class="help-callout warn">
+        <p>Your logs are kept on this phone only. They are not stored anywhere else, so the backup file matters.</p>
+      </div>
+
+      <h3>If something looks wrong</h3>
+      <p>Look at the version number at the top of the screen, next to the words Rider Log.</p>
+      <p>Tell whoever set this up what the screen said and what you tapped just before it happened.</p>
+
+    </div>
+  </div>
+</div>
+
 <script>
 // ---------- constants ----------
-const APP_VERSION = '1.3.1';
-const APP_BUILD = '2026-11-09';
+const APP_VERSION = '1.5.0';
+const APP_BUILD = '2026-11-19';
 const STORAGE_PREFIX = 'riderlog:entries:';
 let currentEditId = null;
 let dateTouched = false;   // true once the driver picks a date themselves
@@ -938,6 +1110,8 @@ function updateCompileButton(){
   document.getElementById('compileBtn').disabled = (n === 0);
   const shareRiders = document.getElementById('shareRidersBtn');
   if(shareRiders) shareRiders.disabled = (n === 0);
+  const copyRiders = document.getElementById('copyRidersBtn');
+  if(copyRiders) copyRiders.disabled = (n === 0);
   const count = document.getElementById('selCount');
   if(count) count.textContent = (n === 1 ? '1 selected' : n + ' selected');
   const selAll = document.getElementById('selectAllBtn');
@@ -1237,6 +1411,20 @@ function mergeDays(mine, theirs){
   return { days, added, keptMine };
 }
 
+// Messaging apps mangle pasted text: curly quotes, non-breaking spaces, and
+// chatter wrapped around the data. Clean all that up before parsing.
+function parsePayloadText(raw){
+  let t = String(raw || '')
+    .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/\u00A0/g, ' ')
+    .trim();
+  const first = t.indexOf('{');
+  const last = t.lastIndexOf('}');
+  if(first > -1 && last > first) t = t.slice(first, last + 1);
+  return JSON.parse(t);
+}
+
 function buildRiderPayload(entries){
   return {
     app: 'rider-log',
@@ -1246,9 +1434,18 @@ function buildRiderPayload(entries){
     exportedAt: new Date().toISOString(),
     entries: entries.map(e=>{
       const copy = { ...e };
-      delete copy.driver;
+      delete copy.driver;      // sign-off belongs to whoever signs the form
       delete copy.date;
       delete copy.savedAt;
+      // keep only days that were actually marked, so the text stays short
+      // enough to paste into a message; merging treats a missing day as empty
+      const days = {};
+      for(const [d, v] of Object.entries(e.days || {})){
+        const am = String((v && v.am) || '').trim();
+        const pm = String((v && v.pm) || '').trim();
+        if(am || pm) days[d] = { am, pm };
+      }
+      copy.days = days;
       return copy;
     })
   };
@@ -1264,11 +1461,13 @@ async function shareSelectedRiders(){
     const all = await loadAllEntries();
     const picked = all.filter(e => selectedIds.has(e.id));
     const payload = buildRiderPayload(picked);
+    // .txt / text-plain: phones and mail systems open this anywhere, where a
+    // .json attachment usually has no handler and simply won't open.
     const json = JSON.stringify(payload, null, 2);
-    const name = 'riders-' + new Date().toISOString().slice(0,10) + '.json';
-    const blob = new Blob([json], {type:'application/json'});
+    const name = 'riders-' + new Date().toISOString().slice(0,10) + '.txt';
+    const blob = new Blob([json], {type:'text/plain'});
 
-    const file = new File([blob], name, {type:'application/json'});
+    const file = new File([blob], name, {type:'text/plain'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
       try{
         await navigator.share({ files:[file], title:'Rider details', text:`${picked.length} rider log(s) from Rider Log.` });
@@ -1288,6 +1487,45 @@ async function shareSelectedRiders(){
   }catch(err){
     console.error(err);
     showStatus(status, 'Could not share those riders — try again.', 'err');
+  }
+}
+
+async function copyRidersAsText(){
+  const status = document.getElementById('ridersStatus');
+  const wrap = document.getElementById('copyWrap');
+  const box = document.getElementById('copyBox');
+  if(selectedIds.size === 0){
+    showStatus(status, 'Tick the riders you want to send first.', 'err');
+    return;
+  }
+  try{
+    const all = await loadAllEntries();
+    const picked = all.filter(e => selectedIds.has(e.id));
+    const text = JSON.stringify(buildRiderPayload(picked));   // compact, so it fits a text message
+
+    box.value = text;
+    wrap.style.display = 'block';
+
+    let copied = false;
+    try{
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    }catch(e){
+      try{                                   // older browsers
+        box.removeAttribute('readonly');
+        box.focus(); box.select();
+        copied = document.execCommand('copy');
+        box.setAttribute('readonly','');
+      }catch(e2){ copied = false; }
+    }
+
+    showStatus(status, copied
+      ? `Copied ${picked.length} rider(s). Paste it into a text message or email.`
+      : `Ready below — tap the box, select all, and copy, then paste it into a message.`,
+      copied ? 'ok' : 'info');
+  }catch(err){
+    console.error(err);
+    showStatus(status, 'Could not copy those riders — try again.', 'err');
   }
 }
 
@@ -1337,8 +1575,8 @@ async function importRidersFromFile(file){
   try{
     const text = await file.text();
     let payload;
-    try{ payload = JSON.parse(text); }
-    catch(e){ throw new Error('That file isn\'t valid JSON.'); }
+    try{ payload = parsePayloadText(text); }
+    catch(e){ throw new Error('Couldn\'t read that file \u2014 make sure it\'s the one the other driver sent.'); }
     if(!payload || !Array.isArray(payload.entries)){
       throw new Error('That doesn\'t look like a Rider Log file.');
     }
@@ -1349,7 +1587,42 @@ async function importRidersFromFile(file){
   }
 }
 
+async function importPastedRiders(){
+  const status = document.getElementById('ridersStatus');
+  const box = document.getElementById('pasteBox');
+  const raw = box.value.trim();
+  if(!raw){
+    showStatus(status, 'Paste the message into the box first.', 'err');
+    return;
+  }
+  let payload;
+  try{ payload = parsePayloadText(raw); }
+  catch(e){
+    showStatus(status, "Couldn't read that \u2014 make sure the whole message got pasted, from the first { to the last }.", 'err');
+    return;
+  }
+  if(!payload || !Array.isArray(payload.entries)){
+    showStatus(status, "That doesn't look like rider text from this app.", 'err');
+    return;
+  }
+  await importRiders(payload, status);
+  box.value = '';
+  document.getElementById('pasteWrap').style.display = 'none';
+}
+
 document.getElementById('shareRidersBtn').addEventListener('click', shareSelectedRiders);
+document.getElementById('copyRidersBtn').addEventListener('click', copyRidersAsText);
+document.getElementById('pasteRidersBtn').addEventListener('click', ()=>{
+  const wrap = document.getElementById('pasteWrap');
+  const open = wrap.style.display !== 'none';
+  wrap.style.display = open ? 'none' : 'block';
+  if(!open) document.getElementById('pasteBox').focus();
+});
+document.getElementById('pasteGoBtn').addEventListener('click', importPastedRiders);
+document.getElementById('pasteCancelBtn').addEventListener('click', ()=>{
+  document.getElementById('pasteBox').value = '';
+  document.getElementById('pasteWrap').style.display = 'none';
+});
 document.getElementById('importRidersBtn').addEventListener('click', ()=>{
   document.getElementById('importRidersFile').click();
 });
@@ -1433,11 +1706,11 @@ async function exportAllData(){
       signature,
       entries
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'text/plain'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'rider-log-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    a.download = 'rider-log-backup-' + new Date().toISOString().slice(0,10) + '.txt';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(()=>URL.revokeObjectURL(url), 4000);
 
@@ -1462,8 +1735,8 @@ async function importDataFromFile(file){
   try{
     const text = await file.text();
     let payload;
-    try{ payload = JSON.parse(text); }
-    catch(e){ throw new Error('That file isn\'t valid JSON.'); }
+    try{ payload = parsePayloadText(text); }
+    catch(e){ throw new Error('Couldn\'t read that file \u2014 make sure it\'s a Rider Log backup.'); }
 
     if(!payload || !Array.isArray(payload.entries)){
       throw new Error('That doesn\'t look like a Rider Log backup file.');
@@ -1512,6 +1785,44 @@ document.getElementById('importFile').addEventListener('change', (e)=>{
   e.target.value = ''; // allow re-importing the same file later
 });
 
+// ---------- help ----------
+const HELP_SEEN_KEY = 'riderlog:helpseen';
+const helpOverlay = document.getElementById('helpOverlay');
+let helpOpener = null;
+
+function openHelp(){
+  helpOpener = document.activeElement;
+  helpOverlay.hidden = false;
+  document.getElementById('helpCloseBtn').focus();
+  try{ storageAPI.set(HELP_SEEN_KEY, '1'); }catch(e){ /* fine */ }
+}
+function closeHelp(){
+  helpOverlay.hidden = true;
+  if(helpOpener && helpOpener.focus) helpOpener.focus();
+}
+
+document.getElementById('helpBtn').addEventListener('click', openHelp);
+document.getElementById('helpCloseBtn').addEventListener('click', closeHelp);
+helpOverlay.addEventListener('click', (e)=>{ if(e.target === helpOverlay) closeHelp(); });
+document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !helpOverlay.hidden) closeHelp(); });
+
+document.getElementById('helpPrintBtn').addEventListener('click', ()=>{
+  document.body.classList.add('printing-help');
+  window.print();
+});
+window.addEventListener('afterprint', ()=> document.body.classList.remove('printing-help'));
+
+// First time on a blank phone, open it once so a new driver sees the basics.
+async function maybeShowHelpFirstRun(){
+  try{
+    const seen = await storageAPI.get(HELP_SEEN_KEY);
+    if(seen && seen.value) return;
+    const entries = await loadAllEntries();
+    if(entries.length === 0) openHelp();
+    else { try{ await storageAPI.set(HELP_SEEN_KEY,'1'); }catch(e){} }
+  }catch(e){ /* never block the app on this */ }
+}
+
 // ---------- init ----------
 document.getElementById('appVersion').textContent = 'v' + APP_VERSION;
 document.getElementById('storageModeLine').textContent =
@@ -1526,6 +1837,7 @@ document.getElementById('storageModeLine').textContent =
   await setViewMode(saved, true);
 })();
 loadSignature();
+maybeShowHelpFirstRun();
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
