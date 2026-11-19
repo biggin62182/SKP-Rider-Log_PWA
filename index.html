@@ -512,7 +512,7 @@
         <div id="entriesList"></div>
 
         <div class="section-title">Backup &amp; Transfer</div>
-        <p class="note">Your data lives only in this browser/device. Export it to move your logs and signature to another device, or to keep a backup.</p>
+        <p class="note">Your data lives only on this phone. Export it to keep a backup or move to another device. Importing a backup <strong>merges</strong> it in — marks already on this phone are never overwritten, and anything missing is filled back in.</p>
         <div class="actions-row">
           <button class="btn btn-outline" id="exportBtn">Export All Data</button>
           <button class="btn btn-outline" id="importBtn">Import Data</button>
@@ -642,7 +642,8 @@
 
       <h3>9. Keep a backup</h3>
       <p>Once a month, tap <b>Export All Data</b> and save the file somewhere safe, like your email.</p>
-      <p>That file is what gets your logs back if your phone is lost or replaced.</p>
+      <p>That file is what gets your logs back if your phone is lost or replaced. On the new phone, tap <b>Import Data</b> and pick that file.</p>
+      <p>Bringing a backup in never erases anything. Days you have already marked stay as they are, and any day missing from this phone gets filled back in from the file.</p>
       <div class="help-callout warn">
         <p>Your logs are kept on this phone only. They are not stored anywhere else, so the backup file matters.</p>
       </div>
@@ -657,7 +658,7 @@
 
 <script>
 // ---------- constants ----------
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const APP_BUILD = '2026-11-19';
 const STORAGE_PREFIX = 'riderlog:entries:';
 let currentEditId = null;
@@ -1529,6 +1530,75 @@ async function copyRidersAsText(){
   }
 }
 
+// Everything that comes in — a shared rider file or a full backup — is merged,
+// never replaced. A mark already on this phone always wins; incoming data can
+// only fill a box that is empty. So restoring an old backup cannot wipe newer
+// work, and a replacement phone can be rebuilt from an old file.
+async function mergeEntries(incoming, opts){
+  opts = opts || {};
+  const existing = await loadAllEntries();
+  const byId  = new Map(existing.map(e => [e.id, e]));
+  const byKey = new Map(existing.map(e => [riderKey(e), e]));
+
+  const fields = ['student','monthYear','pickup','residence','home','total','am','pm','split']
+    .concat(opts.keepSignOff ? ['driver','date'] : []);
+
+  let merged = 0, added = 0, marksAdded = 0, marksKept = 0;
+
+  for(const inc of incoming){
+    // match by id first, then by rider name + month, so a rider typed fresh on
+    // a new phone still merges with the copy in an old backup
+    const mine = (inc.id && byId.get(inc.id)) || byKey.get(riderKey(inc));
+
+    if(mine){
+      const r = mergeDays(mine.days, inc.days);
+      const updated = { ...mine, days: r.days };
+      for(const f of fields){
+        if(!String(updated[f] || '').trim() && String(inc[f] || '').trim()) updated[f] = inc[f];
+      }
+      updated.savedAt = new Date().toISOString();
+      await storageAPI.set(STORAGE_PREFIX + updated.id, JSON.stringify(updated));
+      byId.set(updated.id, updated); byKey.set(riderKey(updated), updated);
+      merged++; marksAdded += r.added; marksKept += r.keptMine;
+    }else{
+      const id = (inc.id && !byId.has(inc.id))
+        ? inc.id
+        : ('e' + Date.now() + Math.random().toString(36).slice(2,7));
+      const rec = { ...inc, id, savedAt: inc.savedAt || new Date().toISOString() };
+      if(!opts.keepSignOff){ delete rec.driver; delete rec.date; }
+      await storageAPI.set(STORAGE_PREFIX + id, JSON.stringify(rec));
+      byId.set(id, rec); byKey.set(riderKey(rec), rec);
+      added++;
+    }
+  }
+  return { merged, added, marksAdded, marksKept };
+}
+
+// After an import, put the open form back in step with storage. Without this
+// the screen keeps showing the pre-import version, and the next Save writes
+// that stale copy straight back over what was just merged in.
+async function refreshAfterImport(){
+  await refreshEntriesList();
+  if(currentEditId){
+    const fresh = (await loadAllEntries()).find(e => e.id === currentEditId);
+    if(fresh) fillForm(fresh);
+    else clearForm();
+    return true;
+  }
+  return false;
+}
+
+function summariseMerge(r, extra){
+  const bits = [];
+  if(r.added) bits.push(`added ${r.added} log(s)`);
+  if(r.merged) bits.push(`merged ${r.merged} you already had`);
+  if(r.marksAdded) bits.push(`filled ${r.marksAdded} empty AM/PM box(es)`);
+  if(r.marksKept) bits.push(`kept ${r.marksKept} of your own mark(s) where both had one`);
+  if(extra) bits.push(extra);
+  return bits.length ? (bits.join(', ') + '.')
+                     : 'Nothing to change — your logs already had everything in that file.';
+}
+
 async function importRiders(payload, statusEl){
   const status = statusEl || document.getElementById('ridersStatus');
   const incoming = Array.isArray(payload.entries) ? payload.entries : [];
@@ -1536,38 +1606,9 @@ async function importRiders(payload, statusEl){
     showStatus(status, 'That file has no riders in it.', 'err');
     return;
   }
-
-  const existing = await loadAllEntries();
-  const byKey = new Map(existing.map(e => [riderKey(e), e]));
-  let mergedCount = 0, addedCount = 0, marksAdded = 0, marksKept = 0;
-
-  for(const inc of incoming){
-    const mine = byKey.get(riderKey(inc));
-    if(mine){
-      const r = mergeDays(mine.days, inc.days);
-      const updated = { ...mine, days: r.days };
-      for(const f of ['pickup','residence','home','total','am','pm','split']){
-        if(!String(updated[f] || '').trim() && String(inc[f] || '').trim()) updated[f] = inc[f];
-      }
-      updated.savedAt = new Date().toISOString();
-      await storageAPI.set(STORAGE_PREFIX + updated.id, JSON.stringify(updated));
-      mergedCount++; marksAdded += r.added; marksKept += r.keptMine;
-    }else{
-      const id = 'e' + Date.now() + Math.random().toString(36).slice(2,7);
-      const rec = { ...inc, id, savedAt: new Date().toISOString() };
-      delete rec.driver; delete rec.date;
-      await storageAPI.set(STORAGE_PREFIX + id, JSON.stringify(rec));
-      addedCount++;
-    }
-  }
-
-  await refreshEntriesList();
-  const bits = [];
-  if(addedCount) bits.push(`added ${addedCount} new rider log(s)`);
-  if(mergedCount) bits.push(`merged ${mergedCount} you already had`);
-  if(marksAdded) bits.push(`filled ${marksAdded} empty AM/PM box(es)`);
-  if(marksKept) bits.push(`kept ${marksKept} of your own mark(s) where both had one`);
-  showStatus(status, bits.length ? (bits.join(', ') + '.') : 'Nothing to change — your logs already had everything in that file.', 'ok');
+  const r = await mergeEntries(incoming, { keepSignOff:false });
+  const reloaded = await refreshAfterImport();
+  showStatus(status, summariseMerge(r, reloaded ? 'the open form was refreshed' : ''), 'ok');
 }
 
 async function importRidersFromFile(file){
@@ -1747,28 +1788,38 @@ async function importDataFromFile(file){
       return;
     }
 
-    let count = 0;
-    for(const entry of payload.entries){
-      if(!entry.id) entry.id = 'e' + Date.now() + Math.random().toString(36).slice(2,7);
-      await storageAPI.set(STORAGE_PREFIX + entry.id, JSON.stringify(entry));
-      count++;
-    }
+    // merge, exactly like a shared rider file: nothing already on this phone
+    // is overwritten, and anything missing is filled in from the backup
+    const r = await mergeEntries(payload.entries, { keepSignOff:true });
 
+    let sigNote = '';
     if(payload.signature){
-      await storageAPI.set(SIG_KEY, payload.signature);
-      currentSignature = payload.signature;
-      const img = new Image();
-      img.onload = ()=>{
-        sigCtx.fillStyle = '#ffffff';
-        sigCtx.fillRect(0,0,sigCanvas.width,sigCanvas.height);
-        sigCtx.drawImage(img, 0, 0, sigCanvas.width, sigCanvas.height);
-      };
-      img.src = payload.signature;
-      document.getElementById('sigSavedNote').style.display = 'block';
+      let haveSig = false;
+      try{
+        const cur = await storageAPI.get(SIG_KEY);
+        haveSig = !!(cur && cur.value);
+      }catch(e){ /* treat as none */ }
+      if(!haveSig){
+        await storageAPI.set(SIG_KEY, payload.signature);
+        currentSignature = payload.signature;
+        const img = new Image();
+        img.onload = ()=>{
+          sigCtx.fillStyle = '#ffffff';
+          sigCtx.fillRect(0,0,sigCanvas.width,sigCanvas.height);
+          sigCtx.drawImage(img, 0, 0, sigCanvas.width, sigCanvas.height);
+        };
+        img.src = payload.signature;
+        document.getElementById('sigSavedNote').style.display = 'block';
+        sigNote = 'restored your signature';
+      }else{
+        sigNote = 'kept the signature already on this phone';
+      }
     }
 
-    await refreshEntriesList();
-    showStatus(status, `Imported ${count} log(s)${payload.signature ? ' + signature' : ''}.`, 'ok');
+    const reloaded = await refreshAfterImport();
+    const extras = [sigNote, reloaded ? 'the open form was refreshed' : '']
+      .filter(Boolean).join(', ');
+    showStatus(status, summariseMerge(r, extras), 'ok');
   }catch(err){
     console.error(err);
     showStatus(status, err.message || 'Import failed — check the file and try again.', 'err');
